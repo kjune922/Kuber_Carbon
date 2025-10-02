@@ -1,0 +1,48 @@
+version: "3.8"
+services:
+  fastapi:
+    build: .
+    container_name: fastapi_kuber
+    command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./src:/app/src
+    ports:
+      - "8001:8000"    # 로컬 8001 → 컨테이너 내부 8000
+    depends_on:
+      - redis
+      - db
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - DATABASE_URL=postgresql+psycopg2://kjune0922:dlrudalswns2@postgres_kuber:5432/kuber_db
+
+  worker:
+    build: .
+    container_name: celery_kuber
+    command: celery -A src.celery_app.celery_app worker --loglevel=info
+    volumes:
+      - ./src:/app/src
+    depends_on:
+      - redis
+      - db
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - DATABASE_URL=postgresql+psycopg2://kjune0922:dlrudalswns2@db:5432/kuber_db
+
+  redis:
+    image: redis:6
+    container_name: redis_kuber
+    ports:
+      - "6380:6379"    # 로컬 6380 → 컨테이너 내부 6379
+
+  db:
+    image: postgres:15
+    container_name: postgres_kuber
+    environment:
+      POSTGRES_USER: kjune0922
+      POSTGRES_PASSWORD: dlrudalswns2
+      POSTGRES_DB: kuber_db
+    ports:
+      - "5433:5432"    # 로컬 5433 → 컨테이너 내부 5432
+  
