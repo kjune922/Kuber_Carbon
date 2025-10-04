@@ -9,11 +9,11 @@ services:
     ports:
       - "8001:8000"    # 로컬 8001 → 컨테이너 내부 8000
     depends_on:
-      - redis
+      - redis_kuber
       - db
     environment:
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis_kuber:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis_kuber:6379/0
       - DATABASE_URL=postgresql+psycopg2://kjune0922:dlrudalswns2@postgres_kuber:5432/kuber_db
 
   worker:
@@ -23,14 +23,14 @@ services:
     volumes:
       - ./src:/app/src
     depends_on:
-      - redis
+      - redis_kuber
       - db
     environment:
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis_kuber:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis_kuber:6379/0
       - DATABASE_URL=postgresql+psycopg2://kjune0922:dlrudalswns2@db:5432/kuber_db
 
-  redis:
+  redis_kuber:
     image: redis:6
     container_name: redis_kuber
     ports:
@@ -45,4 +45,18 @@ services:
       POSTGRES_DB: kuber_db
     ports:
       - "5433:5432"    # 로컬 5433 → 컨테이너 내부 5432
+
+  celery_beat_kuber:
+    build: .
+    container_name: celery_beat_kuber
+    command: celery -A src.celery_app beat --loglevel=info
+    depends_on:
+      - redis_kuber
+      - db
+    environment:
+      - CELERY_BROKER_URL=redis://redis_kuber:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis_kuber:6379/0
+      - WATTTIME_USER=kjune922
+      - WATTTIME_PASS=dlrudalswns2!
+      - PROMETHEUS_URL=http://prometheus-server:9090
   

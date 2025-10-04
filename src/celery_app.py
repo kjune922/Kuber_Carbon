@@ -1,6 +1,9 @@
 from celery import Celery
 import os
 from src.db import SessionLocal, TaskResult
+from src.scheduler import auto_updater
+from datetime import timedelta
+
 
 '''
 app = Celery(
@@ -36,3 +39,21 @@ def add(x,y):
   finally:
     db.close()
   return result_value
+
+
+## 실전 클러스터 탄소 Task
+
+@celery_app.task
+def run_real_carbon_scheduler_task():
+  from src.scheduler.carbon_scheduler_real import run_real_carbon_scheduler
+  return run_real_carbon_scheduler()
+  
+# 실시간 수집
+celery_app.conf.beat_schedule = {
+    'run-real-carbon-scheduler-every-5min': {
+        'task': 'src.celery_app.run_real_carbon_scheduler_task',
+        'schedule': timedelta(minutes=5),
+    },
+}
+
+celery_app.conf.timezone = 'Asia/Seoul'
