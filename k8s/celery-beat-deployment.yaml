@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-beat
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: celery-beat
+  template:
+    metadata:
+      labels:
+        app: celery-beat
+    spec:
+      containers:
+        - name: celery-beat
+          image: 266735841992.dkr.ecr.ap-northeast-2.amazonaws.com/fastapi-kuber:latest
+          command: ["celery", "-A", "src.celery_app.celery_app", "beat", "--loglevel=info"]
+          envFrom:
+            - configMapRef:
+                name: kuberzo-config
+            - secretRef:
+                name: kuberzo-secrets

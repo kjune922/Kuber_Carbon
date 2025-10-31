@@ -1,59 +1,143 @@
 from celery import Celery
 import os
-from src.db import SessionLocal, TaskResult
-from src.scheduler import auto_updater
-from datetime import timedelta
+from datetime import timedelta, datetime
+import random
+from src.db import SessionLocal, TaskResult, init_db, ClusterStatus
+from src.scheduler.carbon_scheduler_real import run_real_carbon_scheduler
+from src.scheduler.carbon_collector import update_cluster_carbon_intensity
 
 
-'''
-app = Celery(
-  'tasks', 
-  backend='redis://localhost:6379', # worker와 작업결과를 저장하기위해 저장할 백엔드 선언
-  broker="redis://localhost:6379" # Celery를 사용하기위해 task메세지들을 주고받기위한 message broker선언했음
-  )
-'''
+#   Celery 기본 설정
 
-# 그러나 docker로 한방에 할려고 backend나 broker주소를 매번 타이핑하긴싫으니 celery_broken_url, celery_result_backend 로 컨테이너환경변수로 선언
 
-broken_url = os.getenv("CELERY_BROKEN_URL","redis://redis_kuber:6379/0") # 0은 DB번호
-backend_url = os.getenv("CELERY_RESULT_BACKEND","redis://redis_kuber:6379/0") # 0은 DB번호
+broker_url = os.getenv("CELERY_BROKER_URL", "redis://redis_kuber:6379/0")
+backend_url = os.getenv("CELERY_RESULT_BACKEND", "redis://redis_kuber:6379/0")
 
 celery_app = Celery(
-  "worker",
-  broker = broken_url,
-  backend = backend_url
+    "worker",
+    broker=broker_url,
+    backend=backend_url
 )
 
-@celery_app.task
-def add(x,y):
-  result_value = x + y
-  db = SessionLocal()
-  try:
-    db_result = TaskResult(
-      task_id=add.request.id, # Celery task id임
-      status="성공!!!!",
-      result=str(result_value)
-    )
-    db.add(db_result)
-    db.commit()
-  finally:
-    db.close()
-  return result_value
+celery_app.conf.timezone = 'Asia/Seoul'
+
+# DB 초기화
+init_db()
 
 
-## 실전 클러스터 탄소 Task
+#   Celery Beat 스케줄링 설정
 
-@celery_app.task
-def run_real_carbon_scheduler_task():
-  from src.scheduler.carbon_scheduler_real import run_real_carbon_scheduler
-  return run_real_carbon_scheduler()
-  
-# 실시간 수집
+
 celery_app.conf.beat_schedule = {
-    'run-real-carbon-scheduler-every-5min': {
+    # 실시간 탄소 스케줄러 (1분마다 실행)
+    '탄소 스케줄러 실행': {
         'task': 'src.celery_app.run_real_carbon_scheduler_task',
-        'schedule': timedelta(minutes=5),
+        'schedule': timedelta(minutes=1),
+    },
+    # 클러스터 자동 초기화 (30초마다)
+    'auto-initialize-clusters': {
+        'task': 'src.celery_app.auto_initialize_clusters',
+        'schedule': 30.0,
     },
 }
 
-celery_app.conf.timezone = 'Asia/Seoul'
+
+
+#   기본 add() 작업 - 단순 연산 + DB 저장
+
+
+@celery_app.task
+def add(x, y):
+    """단순 덧셈 작업 + 결과를 DB에 저장"""
+    result_value = x + y
+    session = None
+    try:
+        session = SessionLocal()
+        db_result = TaskResult(
+            task_id=add.request.id,
+            status="성공!!!!",
+            result=str(result_value)
+        )
+        session.add(db_result)
+        session.commit()
+        return result_value
+
+    except Exception as e:
+        print(f"[add 오류] {e}")
+        if session and session.is_active:
+            session.rollback()
+        raise e
+
+    finally:
+        if session:
+            session.close()
+        try:
+            SessionLocal.remove()
+        except Exception:
+            pass
+
+
+
+#   실전 Caspian 탄소 스케줄러 Task
+
+
+@celery_app.task
+def run_real_carbon_scheduler_task():
+    """Caspian 기반 클러스터 스케줄러 실행"""
+    return run_real_carbon_scheduler()
+
+
+
+#   클러스터 자동 초기화 Task (한국/일본)
+
+@celery_app.task
+def auto_initialize_clusters():
+    """
+    ClusterStatus 테이블에
+    기본 클러스터 2개(KR/JP)를 자동 생성하는 Task
+    """
+    session = None
+    try:
+        session = SessionLocal()
+        clusters = [
+            {"cluster_name": "cluster_kr", "region": "KR"},
+            {"cluster_name": "cluster_jp", "region": "JP"},
+        ]
+
+        for c in clusters:
+            exists = session.query(ClusterStatus).filter_by(cluster_name=c["cluster_name"]).first()
+            if not exists:
+                new_data = ClusterStatus(
+                    cluster_name=c["cluster_name"],
+                    region=c["region"],
+                    cpu_usage=round(random.uniform(20, 90), 2),
+                    memory_usage=round(random.uniform(30, 95), 2),
+                    carbon_intensity=round(random.uniform(50, 400), 2),
+                    last_updated=datetime.utcnow(),
+                )
+                session.add(new_data)
+
+        session.commit()
+        print("[auto_initialize_clusters] 한국/일본 클러스터 등록 완료")
+
+    except Exception as e:
+        print(f"[auto_initialize_clusters 오류] {e}")
+        if session and session.is_active:
+            session.rollback()
+
+    finally:
+        if session:
+            session.close()
+        try:
+            SessionLocal.remove()
+        except Exception:
+            pass
+
+
+#   Celery Beat: WattTime 실시간 탄소데이터 갱신 (10초마다)
+
+@celery_app.on_after_configure.connect
+def setup_periodic_tasks(sender, **kwargs):
+    """Celery Beat 주기적 작업 등록"""
+    sender.add_periodic_task(10.0, update_cluster_carbon_intensity.s(), name='update_wattime_data')
+    print("[Celery Beat] WattTime 실시간 탄소데이터 10초 주기 업데이트 등록 완료")

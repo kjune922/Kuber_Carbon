@@ -1,29 +1,57 @@
-import random
-from celery import Celery
+import requests
+from datetime import datetime
 from src.db import SessionLocal, ClusterStatus
+import logging
 
-celery_app = Celery(
-  "auto_updater",
-  broker="redis://redis_kuber:6379/0",
-  backend="redis://redis_kuber:6379/0"
-)
+logging.basicConfig(level=logging.INFO)
 
-@celery_app.task
+# 실제 Caspian API 엔드포인트 (예시 URL)
+CASPIAN_API_BASE = "http://caspian-api.kuberzo.internal"  # Caspian Metric API 주소로 교체
+
+def fetch_caspian_metrics(cluster_name: str):
+    """Caspian API에서 CPU, 메모리, 탄소지표 가져오기"""
+    try:
+        resp = requests.get(f"{CASPIAN_API_BASE}/metrics/{cluster_name}", timeout=5)
+        if resp.status_code == 200:
+            data = resp.json()
+            return {
+                "cpu": data.get("cpu_usage"),
+                "mem": data.get("memory_usage"),
+                "co2": data.get("carbon_intensity")
+            }
+        else:
+            logging.warning(f"[{cluster_name}] API 응답 오류: {resp.status_code}")
+    except Exception as e:
+        logging.error(f"[{cluster_name}] API 연결 실패: {e}")
+    return None
+
 def auto_update_clusters():
-  # 클러스터 상태를 주기적으로 자동 업뎃
-  db = SessionLocal()
-  try:
-    clusters = db.query(ClusterStatus).all() # ClusterStatus 테이블을 대상으로 쿼리를 시작하겠다는 코드
-    if not clusters: # 근데 없으면? 
-      print("클러스터 데이터가 없습니다")
-      return
-    
-    for cluster in clusters:
-      cluster.cpu_usage = round(random.uniform(20,90),2) # 20.0과 90.0사이에서 랜덤실수하나 만들고 소수점 둘째 자리까지 반올림!
-      cluster.memory_usage = round(random.uniform(30,95),2)
-      cluster.carbon_emission = round(random.uniform(1000,3000),2)
-      
-    db.comiit()
-    print("클러스터 상태 자동 업뎃 완")
-  finally:
-    db.close()
+    """Caspian에서 클러스터 상태 갱신"""
+    session = SessionLocal()
+    clusters = ["caspian-a", "caspian-b", "caspian-c"]  # 실제 Caspian 등록된 클러스터 이름
+
+    for name in clusters:
+        metrics = fetch_caspian_metrics(name)
+        if not metrics:
+            continue
+
+        existing = session.query(ClusterStatus).filter_by(cluster_name=name).first()
+        if existing:
+            existing.cpu_usage = metrics["cpu"]
+            existing.memory_usage = metrics["mem"]
+            existing.carbon_intensity = metrics["co2"]
+            existing.last_updated = datetime.utcnow()
+        else:
+            new_cluster = ClusterStatus(
+                cluster_name=name,
+                cpu_usage=metrics["cpu"],
+                memory_usage=metrics["mem"],
+                carbon_intensity=metrics["co2"],
+                last_updated=datetime.utcnow(),
+            )
+            session.add(new_cluster)
+        logging.info(f"[{name}] 갱신 완료: {metrics}")
+
+    session.commit()
+    session.close()
+    return "Cluster metrics updated"

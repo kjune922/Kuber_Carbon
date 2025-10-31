@@ -6,3 +6,5 @@ alembic
 celery
 redis
 python-dotenv
+requests
+boto3

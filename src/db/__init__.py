@@ -1,42 +1,52 @@
-import os
-from datetime import datetime
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, scoped_session
+from datetime import datetime
+import os
+
+
+#   PostgreSQL 연결 설정
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql+psycopg2://kjune0922:dlrudalswns2@postgres_kuber:5432/kuber_db"
+    "postgresql+psycopg2://kjune922:dlrudalswns2@postgres_kuber:5432/kuber_db"
 )
 
 engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
+SessionLocal = scoped_session(sessionmaker(autocommit=False, autoflush=False, bind=engine))
 Base = declarative_base()
 
-# TaskResult 모델 정의
+
+#   TaskResult 모델 (Celery 작업 결과)
 
 class TaskResult(Base):
-  __tablename__ = "task_results"
-  
-  id = Column(Integer, primary_key=True, index=True)
-  task_id = Column(String, unique=True, index=True)
-  status = Column(String)
-  result = Column(String)
+    __tablename__ = "task_results"
 
-# 클러스터 상태 테이블 (클러스터의 상태와 탄소량 저장 테이블)
+    id = Column(Integer, primary_key=True, index=True)
+    task_id = Column(String, unique=True, index=True)
+    status = Column(String)
+    result = Column(String)
+
+
+
+#   ClusterStatus 모델 (클러스터 상태)
+
 class ClusterStatus(Base):
-  __tablename__ = "cluster_status"
-  
-  id = Column(Integer, primary_key=True,index=True)
-  cluster_name = Column(String, unique = True, index = True)
-  cpu_usage = Column(Float) ## cpu사용량
-  memory_usage = Column(Float) ## 메모리 사용량
-  carbon_emission = Column(Float) ## 탄소 배출략
-  updated_at = Column(DateTime, default=datetime.now)
+    __tablename__ = "cluster_status"
+
+    id = Column(Integer, primary_key=True, index=True)
+    cluster_name = Column(String, unique=True, index=True)
+    region = Column(String, nullable=True)  # 한국, 일본 추가
+    cpu_usage = Column(Float)
+    memory_usage = Column(Float)
+    carbon_intensity = Column(Float)
+    network_latency = Column(Float, nullable=True)
+    last_updated = Column(DateTime, default=datetime.utcnow)
 
 
-
-# 테이블 초기화 함수
+#   DB 초기화 함수
 
 def init_db():
-  Base.metadata.create_all(bind=engine)
+    """테이블 자동 생성"""
+    Base.metadata.create_all(bind=engine)
+    print("[DB 초기화 완료] 테이블이 존재하지 않으면 자동 생성됨.")

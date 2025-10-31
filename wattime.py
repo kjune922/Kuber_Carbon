@@ -1,8 +1,14 @@
 import requests
+from requests.auth import HTTPBasicAuth
 
-r = requests.get(
-    "https://api.watttime.org/v2/login",
-    auth=("kjune922", "dlrudalswns2!")  # ← 방금 만든 계정 정보 그대로
-)
-print(r.status_code)
-print(r.json())
+# WattTime 계정 정보
+username = "kjune922"
+password = "dlrudalswns2!"
+
+# 로그인 요청
+login_url = "https://api.watttime.org/login"
+response = requests.get(login_url, auth=HTTPBasicAuth(username, password))
+
+# 결과 확인
+print("응답 코드:", response.status_code)
+print("응답 내용:", response.json())
