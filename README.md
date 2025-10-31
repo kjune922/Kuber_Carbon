@@ -115,3 +115,80 @@ delta = 0.1
 
 = 0.3*(59.11) + 0.2*(86.69) + 0.4*(120.9) + 0.1*(40.0)
 = 87.431 이 나옴
+
+
+####### 마지막 eks끄고 키고 대쉬보드 보는것까지 템플릿
+
+클라우드 쿠버 동기화서버 끄고키는법
+
+# 1. 현재 클러스터 상태 확인
+aws eks list-clusters --region ap-northeast-2
+aws eks describe-cluster --name kuberzo-cluster --region ap-northeast-2
+
+# 2. 노드 그룹 이름 확인
+aws eks list-nodegroups --cluster-name kuberzo-cluster --region ap-northeast-2
+
+# 3. 노드 그룹 내 EC2 인스턴스 목록 확인
+aws ec2 describe-instances --filters "Name=tag:eks:cluster-name,Values=kuberzo-cluster" --query "Reservations[*].Instances[*].[InstanceId,State.Name]" --region ap-northeast-2
+
+
+>>>
+
+aws ec2 describe-instances --filters "Name=tag:eks:cluster-name,Values=kuberzo-cluster" --query "Reservations[*].Instances[*].[InstanceId,State.Name]" --region ap-northeast-2
+[
+    [
+        [
+            "i-0f154b489b0842416",
+            "running"
+        ]
+    ],
+    [
+        [
+            "i-0314c867da6cf0a1b",
+            "running"
+        ]
+    ],
+    [
+        [
+
+이렇게 뜨면 저거 인스턴스 이름따서 이렇게 그때그떄다름
+
+aws ec2 stop-instances --instance-ids i-0f154b489b0842416 i-0314c867da6cf0a1b --region ap-northeast-2
+
+aws ec2 stop-instances --instance-ids i-0f154b489b0842416 i-06f6ebebc371f3234 --region ap-northeast-2
+
+이렇게 끄고
+
+만약 stopping 뜨고있으면
+상태확인계속 ㄱ
+
+aws ec2 describe-instances --filters "Name=tag:eks:cluster-name,Values=kuberzo-cluster" --query "Reservations[*].Instances[*].[InstanceId,State.Name]" --region ap-northeast-2
+
+다시키자
+
+aws ec2 start-instances --instance-ids i-0f154b489b0842416 i-0314c867da6cf0a1b --region ap-northeast-2
+
+
+키는거확인 (꺼질떄랑 같음)
+
+aws ec2 describe-instances --filters "Name=tag:eks:cluster-name,Values=kuberzo-cluster" --query "Reservations[*].Instances[*].[InstanceId,State.Name]" --region ap-northeast-2
+
+
+## 노드연결확인
+
+kubectl get nodes -n default
+
+
+## 주요 pod애들 확인
+
+kubectl get pods -n default
+
+혹시 에러뜨면
+
+kubectl rollout restart deployment fastapi-kuber -n default
+kubectl rollout restart deployment celery-worker -n default
+kubectl rollout restart deployment celery-beat -n default
+
+
+
+
